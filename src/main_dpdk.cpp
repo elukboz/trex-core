@@ -19,6 +19,7 @@
   limitations under the License.
 */
 #include <assert.h>
+#include <endian.h>
 #include <pthread.h>
 #include <signal.h>
 #include <pwd.h>
@@ -108,6 +109,7 @@ extern "C" {
 #include "utl_offloads.h"
 #include "trex_defs.h"
 #include "callbacks.h"
+#include "utl_ipv6_hextets.h"
 
 #define MAX_PKT_BURST   32
 #define BP_MAX_CORES 48
@@ -1478,6 +1480,22 @@ COLD_FUNC int DpdkTRexPortAttr::add_mac(char * mac){
         }
     }
 
+    return 0;
+}
+
+COLD_FUNC int DpdkTRexPortAttr::enable_multicast_mac(const ipv6_hextets& local_ipv6) {
+    ipv6_hextets ipv6_be = local_ipv6;
+    for (int i = 0; i < ipv6_be.size(); i++) {
+        ipv6_be[i] = htobe16(ipv6_be[i]);
+    }
+    // RFC2464 - multicast mapped MAC - 33:33:XX:XX:XX:XX
+    // 0xff at 3rd byte is from RFC4291 - solicited-node address
+    rte_ether_addr solicited_node_multicast = {{0x33, 0x33, 0xff, 0x00, 0x00, 0x00}};
+    memcpy(solicited_node_multicast.addr_bytes + 3, (uint8_t*)ipv6_be.data() + 13, 3);
+    if (rte_eth_dev_set_mc_addr_list(m_repid, &solicited_node_multicast, 1) != 0) {
+        printf("Failed setting multicast MAC filter for port %d \n", (int)m_repid);
+        exit(-1);
+    }
     return 0;
 }
 
@@ -3486,6 +3504,16 @@ COLD_FUNC void CGlobalTRex::pre_test() {
             if (resolve_needed) {
                 pretest.add_next_hop(port_id, CGlobalInfo::m_options.m_ip_cfg[port_id].get_def_gw()
                                      , CGlobalInfo::m_options.m_ip_cfg[port_id].get_vlan());
+                auto ipv6_addr = CGlobalInfo::m_options.m_ip_cfg[port_id].get_ipv6();
+                if (ipv6_addr != IPV6_UNSPECIFIED) {
+                    pretest.add_ip(port_id, ipv6_addr.data()
+                        , CGlobalInfo::m_options.m_ip_cfg[port_id].get_vlan()
+                        , CGlobalInfo::m_options.m_mac_addr[port_id].u.m_mac.src);
+                    auto gwv6 = CGlobalInfo::m_options.m_ip_cfg[port_id].get_def_gwv6();
+                    pretest.add_next_hop(port_id
+                        , gwv6.data()
+                        , CGlobalInfo::m_options.m_ip_cfg[port_id].get_vlan());
+                }
             }
         }
     }
@@ -3876,6 +3904,10 @@ COLD_FUNC int  CGlobalTRex::device_start(void){
         }
 
         _if->get_port_attr()->add_mac((char *)CGlobalInfo::m_options.get_src_mac_addr(i));
+        const auto& local_ipv6 = CGlobalInfo::m_options.m_ip_cfg[i].get_ipv6();
+        if (local_ipv6 != IPV6_UNSPECIFIED) {
+            _if->get_port_attr()->enable_multicast_mac(local_ipv6);
+        }
 
         fflush(stdout);
 
@@ -6467,6 +6499,8 @@ COLD_FUNC int update_global_info_from_platform_file(){
             g_opts->m_ip_cfg[i].set_mask(cg->m_mac_info[i].get_mask());
             g_opts->m_ip_cfg[i].set_vlan(cg->m_mac_info[i].get_vlan());
             g_opts->m_ip_cfg[i].set_mpls(cg->m_mac_info[i].get_mpls());
+            g_opts->m_ip_cfg[i].set_ipv6(cg->m_mac_info[i].get_ipv6());
+            g_opts->m_ip_cfg[i].set_def_gwv6(cg->m_mac_info[i].get_def_gwv6());
             // If one of the ports has vlan, work in vlan mode
             if (cg->m_mac_info[i].get_vlan() != 0) {
                 // Check if MPLS configuration also specified, tunnel in tunnel EoMPLS[vlan]
