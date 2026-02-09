@@ -23,26 +23,34 @@ limitations under the License.
 */
 
 #include <common/closehash.h>
+#include <cstdint>
+#include <cstring>
 #include "flow_stat_parser.h"
 #include "dpdk_port_map.h"
 #include "trex_global.h"
+#include "utl_ipv4v6_addr.h"
 
 #include "tcpip.h"
 #include "os_time.h"
 
 struct flow_key_t {
   bool operator==(const flow_key_t &k) const {
-    return as_uint64[0] == k.as_uint64[0] && as_uint64[1] == k.as_uint64[1];
+    return memcmp(as_uint64, k.as_uint64, sizeof(as_uint64)) == 0;
   };
 
   union {
     struct {
-      uint64_t m_src_ip : 32, m_dst_ip : 32;
-      uint64_t m_sport : 16, m_dport : 16, m_proto : 8, m_ipv4 : 1, m_spare : 7;
-    };
-    uint64_t as_uint64[2];
+      ipv4v6_addr m_src_ip;
+      ipv4v6_addr m_dst_ip;
+      uint16_t m_sport;
+      uint16_t m_dport;
+      uint8_t m_proto;
+    } inner;
+    uint64_t as_uint64[sizeof(inner)/sizeof(uint64_t)];
   };
+  static constexpr size_t AS_64_LEN = sizeof(as_uint64)/sizeof(uint64_t);
 };
+static_assert(sizeof(flow_key_t::inner)==sizeof(flow_key_t::as_uint64), "Adjust members of flow_key_t");
 
 static inline uint32_t ft_hash_rot(uint32_t v,uint16_t r ){
     return ( (v<<r) | ( v>>(32-(r))) );
@@ -79,65 +87,55 @@ public:
 	memset(&m_bf, 0, sizeof(m_bf));
     }
 
-    void set_src_ip(uint32_t ip){
-        m_bf.m_src_ip = ip;
+    void set_src_ip(ipv4v6_addr ip){
+        m_bf.inner.m_src_ip = ip;
     }
 
-    void set_dst_ip(uint32_t ip){
-        m_bf.m_dst_ip = ip;
+    void set_dst_ip(ipv4v6_addr ip){
+        m_bf.inner.m_dst_ip = ip;
     }
 
     void set_sport(uint16_t port){
-        m_bf.m_sport = port;
+        m_bf.inner.m_sport = port;
     }
 
     void set_dport(uint16_t port){
-        m_bf.m_dport = port;
+        m_bf.inner.m_dport = port;
     }
 
     void set_proto(uint8_t proto){
-        m_bf.m_proto = proto;
+        m_bf.inner.m_proto = proto;
     }
 
-    void set_ipv4(bool ipv4){
-        m_bf.m_ipv4 = ipv4?1:0;
+    ipv4v6_addr get_src_ip(){
+        return(m_bf.inner.m_src_ip);
     }
 
-    uint32_t get_src_ip(){
-        return(m_bf.m_src_ip);
-    }
-
-    uint32_t get_dst_ip(){
-        return(m_bf.m_dst_ip);
+    ipv4v6_addr get_dst_ip(){
+        return(m_bf.inner.m_dst_ip);
     }
 
     uint32_t get_sport(){
-        return(m_bf.m_sport);
+        return(m_bf.inner.m_sport);
     }
 
     uint32_t get_dport(){
-        return(m_bf.m_dport);
+        return(m_bf.inner.m_dport);
     }
     uint8_t get_proto(){
-        return(m_bf.m_proto);
-    }
-
-    bool get_is_ipv4(){
-        return(m_bf.m_ipv4?true:false);
+        return(m_bf.inner.m_proto);
     }
 
     flow_key_t get_flow_key(){
-	return m_bf;
-    }
-
-    uint32_t get_hash_worse(){
-        uint16_t p = get_sport() ^ get_dport();
-        uint32_t res = ft_hash_rot(get_src_ip() ^ get_dst_ip(),((p %16)+1)) ^ (p + get_proto()) ;
-        return (res);
+	    return m_bf;
     }
 
     uint32_t get_hash(){
-        return ( ft_hash2(m_bf.as_uint64[0]) ^ m_bf.as_uint64[1]);
+        uint32_t hash = 0;
+        for (int i = 0; i < m_bf.AS_64_LEN; i++) {
+            hash ^= ft_hash2(m_bf.as_uint64[i]);
+        }
+        return hash;
     }
 
     void dump(FILE *fd);
@@ -406,8 +404,8 @@ public:
 public:
 
     void generate_rst_pkt(CPerProfileCtx * pctx,
-                      uint32_t src,
-                      uint32_t dst,
+                      ipv4v6_addr src,
+                      ipv4v6_addr dst,
                       uint16_t src_port,
                       uint16_t dst_port,
                       tunnel_cfg_data_t tunnel_data,
@@ -420,8 +418,8 @@ public:
 
 
     CTcpFlow * alloc_flow(CPerProfileCtx * pctx,
-                          uint32_t src,
-                          uint32_t dst,
+                          ipv4v6_addr src,
+                          ipv4v6_addr dst,
                           uint16_t src_port,
                           uint16_t dst_port,
                           tunnel_cfg_data_t tunnel_data,
@@ -431,8 +429,8 @@ public:
                           uint16_t template_id=0);
 
     CUdpFlow * alloc_flow_udp(CPerProfileCtx * pctx,
-                              uint32_t src,
-                              uint32_t dst,
+                              ipv4v6_addr src,
+                              ipv4v6_addr dst,
                               uint16_t src_port,
                               uint16_t dst_port,
                              tunnel_cfg_data_t tunnel_data,
