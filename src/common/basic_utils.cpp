@@ -373,6 +373,15 @@ std::string utl_uint32_to_ipv4_buf(uint32_t ipv4_addr) {
     return std::string((char *) &ipv4_addr, 4);
 }
 
+std::string utl_hextets_to_ipv6_buf(const ipv6_hextets& hextets) {
+    auto addr_be = hextets;
+    for (int i = 0; i < addr_be.size(); i++) {
+        addr_be[i] = PAL_NTOHS(addr_be[i]);
+    }
+    return std::string((char*)addr_be.data(), 16);
+}
+
+
 float clear_nan_inf(const float var) {
     if ( std::isnan(var) || std::isinf(var) ) {
         return 0.0;
