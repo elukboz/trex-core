@@ -39,6 +39,7 @@ struct ipv4v6_addr {
 
     static uint32_t distance(const ipv4v6_addr& lhs, const ipv4v6_addr& rhs);
     static uint32_t num_ips(const ipv4v6_addr& lhs, const ipv4v6_addr& rhs);
+    static uint32_t modulo(const ipv4v6_addr& lhs, uint32_t rhs);
     static ipv4v6_addr from_str(const char* str);
     static ipv4v6_addr ipv4(uint32_t addr);
     static ipv4v6_addr force_ipv6(const ipv4v6_addr& rhs);

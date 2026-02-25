@@ -349,3 +349,13 @@ TEST(ipv4v6_addr_test, ipv6_from_ipv6) {
     EXPECT_EQ((int)same_addr.version, (int)ipv4v6_addr::Version::V6);
     EXPECT_STREQ(same_addr.to_str().c_str(), "::48.0.109.182");
 }
+
+TEST(ipv4v6_addr_test, ipv4_modulo) {
+    auto addr = ipv4v6_addr::ipv4(103);
+    EXPECT_EQ(3, ipv4v6_addr::modulo(addr, 100));
+}
+
+TEST(ipv4v6_addr_test, ipv6_modulo) {
+    auto addr = ipv4v6_addr::from_str("::67");
+    EXPECT_EQ(3, ipv4v6_addr::modulo(addr, 100));
+}
